@@ -1,0 +1,251 @@
+// OMG IDL 标准格式 - 学校人员管理系统
+// 用于验证 idl_socket_generator.py 的正确性
+
+module SchoolManagement {
+    
+    // ==================== 枚举定义 ====================
+    
+    // 人员类型
+    enum PersonType {
+        STUDENT,        // 学生
+        TEACHER,        // 教师
+        STAFF,          // 职员
+        ADMIN           // 管理员
+    };
+    
+    // 性别
+    enum Gender {
+        MALE,
+        FEMALE,
+        OTHER
+    };
+    
+    // 操作状态
+    enum OperationStatus {
+        SUCCESS,
+        NOT_FOUND,
+        ALREADY_EXISTS,
+        INVALID_DATA,
+        PERMISSION_DENIED,
+        ERROR
+    };
+    
+    // 事件类型
+    enum EventType {
+        PERSON_ADDED,       // 人员添加
+        PERSON_UPDATED,     // 人员更新
+        PERSON_REMOVED,     // 人员删除
+        COURSE_ENROLLED,    // 课程注册
+        COURSE_DROPPED,     // 课程退选
+        GRADE_UPDATED       // 成绩更新
+    };
+    
+    // ==================== 结构体定义 ====================
+    
+    // 地址信息
+    struct Address {
+        string street;
+        string city;
+        string province;
+        string postalCode;
+    };
+    
+    // 课程信息
+    struct Course {
+        string courseId;
+        string courseName;
+        string teacherId;
+        long credits;
+    };
+    
+    // 成绩记录
+    struct Grade {
+        string studentId;
+        string courseId;
+        long score;
+        long timestamp;
+    };
+    
+    // 人员基本信息
+    struct PersonInfo {
+        string personId;
+        string name;
+        long age;
+        Gender gender;
+        PersonType personType;
+        string email;
+        string phone;
+        Address address;
+        long createTime;
+    };
+    
+    // 学生详细信息
+    struct StudentDetails {
+        PersonInfo basicInfo;
+        string major;
+        long enrollmentYear;
+        double gpa;
+    };
+    
+    // 教师详细信息
+    struct TeacherDetails {
+        PersonInfo basicInfo;
+        string department;
+        string title;
+        long yearsOfService;
+    };
+    
+    // 事件通知
+    struct NotificationEvent {
+        EventType eventType;
+        string personId;
+        string description;
+        long timestamp;
+    };
+    
+    // 统计信息
+    struct Statistics {
+        long totalStudents;
+        long totalTeachers;
+        long totalStaff;
+        long totalCourses;
+        double averageGPA;
+    };
+    
+    // ==================== 序列类型定义 ====================
+    
+    typedef sequence<string> StringSeq;
+    typedef sequence<long> LongSeq;
+    typedef sequence<PersonInfo> PersonInfoSeq;
+    typedef sequence<StudentDetails> StudentSeq;
+    typedef sequence<TeacherDetails> TeacherSeq;
+    typedef sequence<Course> CourseSeq;
+    typedef sequence<Grade> GradeSeq;
+    typedef sequence<OperationStatus> StatusSeq;
+    typedef sequence<NotificationEvent> EventSeq;
+    
+    // ==================== 接口定义 ====================
+    
+    interface SchoolService {
+        
+        // ==================== 人员管理操作 ====================
+        
+        // 添加学生
+        // 参数：student - 学生详细信息
+        // 返回：操作状态
+        OperationStatus addStudent(in StudentDetails student);
+        
+        // 添加教师
+        // 参数：teacher - 教师详细信息
+        // 返回：操作状态
+        OperationStatus addTeacher(in TeacherDetails teacher);
+        
+        // 根据ID获取人员信息
+        // 参数：personId - 人员ID
+        // 返回：人员基本信息
+        PersonInfo getPersonInfo(in string personId);
+        
+        // 更新人员信息
+        // 参数：personId - 人员ID, info - 新的人员信息
+        // 返回：是否成功
+        boolean updatePersonInfo(in string personId, in PersonInfo info);
+        
+        // 删除人员
+        // 参数：personId - 人员ID
+        // 返回：是否成功
+        boolean removePerson(in string personId);
+        
+        // 批量添加学生
+        // 参数：students - 学生列表
+        // 返回：成功添加的数量
+        long batchAddStudents(in StudentSeq students);
+        
+        // 批量查询人员
+        // 参数：personIds - 人员ID列表, infos - 输出人员信息列表, status - 输出状态列表
+        void batchQueryPersons(
+            in StringSeq personIds,
+            out PersonInfoSeq infos,
+            out StatusSeq status
+        );
+        
+        // ==================== 课程管理操作 ====================
+        
+        // 添加课程
+        // 参数：course - 课程信息
+        // 返回：操作状态
+        OperationStatus addCourse(in Course course);
+        
+        // 获取所有课程
+        // 返回：课程列表
+        CourseSeq getAllCourses();
+        
+        // 学生选课
+        // 参数：studentId - 学生ID, courseId - 课程ID
+        // 返回：是否成功
+        boolean enrollCourse(in string studentId, in string courseId);
+        
+        // 学生退课
+        // 参数：studentId - 学生ID, courseId - 课程ID
+        // 返回：是否成功
+        boolean dropCourse(in string studentId, in string courseId);
+        
+        // ==================== 成绩管理操作 ====================
+        
+        // 提交成绩
+        // 参数：grade - 成绩记录
+        // 返回：是否成功
+        boolean submitGrade(in Grade grade);
+        
+        // 获取学生所有成绩
+        // 参数：studentId - 学生ID
+        // 返回：成绩列表
+        GradeSeq getStudentGrades(in string studentId);
+        
+        // 批量提交成绩
+        // 参数：grades - 成绩列表
+        // 返回：成功提交的数量
+        long batchSubmitGrades(in GradeSeq grades);
+        
+        // ==================== 查询统计操作 ====================
+        
+        // 按类型查询人员
+        // 参数：personType - 人员类型
+        // 返回：人员信息列表
+        PersonInfoSeq queryByType(in PersonType personType);
+        
+        // 获取统计信息
+        // 返回：统计数据
+        Statistics getStatistics();
+        
+        // 搜索人员
+        // 参数：keyword - 关键字
+        // 返回：匹配的人员列表
+        PersonInfoSeq searchPersons(in string keyword);
+        
+        // 获取人员总数
+        // 返回：人员总数
+        long getTotalCount();
+        
+        // 清空所有数据
+        void clearAll();
+        
+        // ==================== 回调方法（服务器推送通知）====================
+        
+        // 人员变更通知
+        // 参数：event - 事件详情
+        callback void onPersonChanged(in NotificationEvent event);
+        
+        // 批量事件通知
+        // 参数：events - 事件列表
+        callback void onBatchEvents(in EventSeq events);
+        
+        // 系统状态通知
+        // 参数：isOnline - 是否在线
+        callback void onSystemStatus(in boolean isOnline);
+        
+        // 统计信息更新通知
+        // 参数：stats - 最新统计信息
+        callback void onStatisticsUpdated(in Statistics stats);
+    };
+    
+}; // module SchoolManagement

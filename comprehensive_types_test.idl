@@ -1,0 +1,160 @@
+// 全面的C++类型兼容性测试IDL
+module TypeTest {
+    
+    // 测试所有基础整数类型
+    struct IntegerTypes {
+        int8_t i8;
+        uint8_t u8;
+        int16_t i16;
+        uint16_t u16;
+        int32_t i32;
+        uint32_t u32;
+        int64_t i64;
+        uint64_t u64;
+    };
+    
+    // 测试浮点和字符类型
+    struct FloatAndCharTypes {
+        float f;
+        double d;
+        char c;
+        bool b;
+        string str;
+    };
+    
+    // 测试枚举
+    enum Priority {
+        LOW,
+        MEDIUM,
+        HIGH,
+        CRITICAL
+    };
+    
+    enum Status {
+        PENDING,
+        PROCESSING,
+        COMPLETED,
+        FAILED
+    };
+    
+    // 测试嵌套struct
+    struct NestedData {
+        IntegerTypes integers;
+        FloatAndCharTypes floats;
+        Priority priority;
+        Status status;
+    };
+    
+    // 测试各种vector类型
+    typedef sequence<int8_t> Int8Seq;
+    typedef sequence<uint8_t> UInt8Seq;
+    typedef sequence<int16_t> Int16Seq;
+    typedef sequence<uint16_t> UInt16Seq;
+    typedef sequence<int32_t> Int32Seq;
+    typedef sequence<uint32_t> UInt32Seq;
+    typedef sequence<int64_t> Int64Seq;
+    typedef sequence<uint64_t> UInt64Seq;
+    typedef sequence<float> FloatSeq;
+    typedef sequence<double> DoubleSeq;
+    typedef sequence<char> CharSeq;
+    typedef sequence<bool> BoolSeq;
+    typedef sequence<string> StringSeq;
+    typedef sequence<Priority> PrioritySeq;
+    typedef sequence<Status> StatusSeq;
+    typedef sequence<IntegerTypes> IntegerTypesSeq;
+    typedef sequence<NestedData> NestedDataSeq;
+    
+    // 复杂结构包含所有vector类型
+    struct ComplexData {
+        Int8Seq i8seq;
+        UInt8Seq u8seq;
+        Int16Seq i16seq;
+        UInt16Seq u16seq;
+        Int32Seq i32seq;
+        UInt32Seq u32seq;
+        Int64Seq i64seq;
+        UInt64Seq u64seq;
+        FloatSeq fseq;
+        DoubleSeq dseq;
+        CharSeq cseq;
+        BoolSeq bseq;
+        StringSeq strseq;
+        PrioritySeq priseq;
+        StatusSeq stseq;
+        IntegerTypesSeq intseq;
+        NestedDataSeq nestedseq;
+    };
+    
+    // 接口测试所有类型作为参数和返回值
+    interface TypeTestService {
+        
+        // 测试基础类型作为参数
+        int32_t testIntegers(in int8_t i8, in uint8_t u8, in int16_t i16, in uint16_t u16,
+                            in int32_t i32, in uint32_t u32, in int64_t i64, in uint64_t u64);
+        
+        // 测试浮点类型
+        double testFloats(in float f, in double d);
+        
+        // 测试字符和布尔
+        bool testCharAndBool(in char c, in bool b);
+        
+        // 测试string
+        string testString(in string str);
+        
+        // 测试enum
+        Priority testEnum(in Priority p, in Status s);
+        
+        // 测试struct作为参数和返回值
+        IntegerTypes testStruct(in IntegerTypes data);
+        
+        // 测试嵌套struct
+        NestedData testNestedStruct(in NestedData data);
+        
+        // 测试vector<基础类型>
+        Int32Seq testInt32Vector(in Int32Seq seq);
+        UInt64Seq testUInt64Vector(in UInt64Seq seq);
+        FloatSeq testFloatVector(in FloatSeq seq);
+        DoubleSeq testDoubleVector(in DoubleSeq seq);
+        StringSeq testStringVector(in StringSeq seq);
+        BoolSeq testBoolVector(in BoolSeq seq);
+        
+        // 测试vector<enum>
+        PrioritySeq testEnumVector(in PrioritySeq seq);
+        
+        // 测试vector<struct>
+        IntegerTypesSeq testStructVector(in IntegerTypesSeq seq);
+        NestedDataSeq testNestedStructVector(in NestedDataSeq seq);
+        
+        // 测试复杂数据
+        ComplexData testComplexData(in ComplexData data);
+        
+        // 测试out参数（所有类型）
+        void testOutParams(in int32_t input, 
+                          out int8_t o_i8, out uint8_t o_u8,
+                          out int16_t o_i16, out uint16_t o_u16,
+                          out int32_t o_i32, out uint32_t o_u32,
+                          out int64_t o_i64, out uint64_t o_u64,
+                          out float o_f, out double o_d,
+                          out char o_c, out bool o_b,
+                          out string o_str, out Priority o_p);
+        
+        // 测试out vector参数
+        void testOutVectors(in int32_t count,
+                           out Int32Seq o_i32seq,
+                           out FloatSeq o_fseq,
+                           out StringSeq o_strseq,
+                           out PrioritySeq o_pseq,
+                           out IntegerTypesSeq o_structseq);
+        
+        // 测试inout参数
+        void testInOutParams(inout int32_t value, inout string str, 
+                            inout IntegerTypes data, inout Int32Seq seq);
+        
+        // 测试callback - 推送所有类型的通知
+        callback void onIntegerUpdate(in int8_t i8, in uint8_t u8, in int32_t i32, in int64_t i64);
+        callback void onFloatUpdate(in float f, in double d);
+        callback void onStructUpdate(in IntegerTypes data);
+        callback void onVectorUpdate(in Int32Seq seq, in StringSeq strseq);
+        callback void onComplexUpdate(in ComplexData data);
+    };
+};

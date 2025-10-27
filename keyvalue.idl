@@ -1,0 +1,90 @@
+// OMG IDL 标准格式示例
+// 键值存储服务接口定义（使用 callback 关键字）
+
+module KeyValueService {
+    
+    // 操作状态枚举
+    enum OperationStatus {
+        SUCCESS,
+        KEY_NOT_FOUND,
+        INVALID_KEY,
+        ERROR
+    };
+    
+    // 变更事件类型枚举
+    enum ChangeEventType {
+        KEY_ADDED,      // 键被添加
+        KEY_UPDATED,    // 键被更新
+        KEY_REMOVED,    // 键被删除
+        STORE_CLEARED   // 存储被清空
+    };
+    
+    // 键值对结构
+    struct KeyValue {
+        string key;
+        string value;
+    };
+    
+    // 变更通知事件结构
+    struct ChangeEvent {
+        ChangeEventType eventType;  // 事件类型
+        string key;                  // 变更的键（清空时为空）
+        string oldValue;             // 旧值（添加/删除时可能为空）
+        string newValue;             // 新值（删除/清空时为空）
+        long timestamp;              // 时间戳
+    };
+    
+    // 键值序列类型定义
+    typedef sequence<string> StringSeq;
+    typedef sequence<KeyValue> KeyValueSeq;
+    typedef sequence<OperationStatus> StatusSeq;
+    typedef sequence<ChangeEvent> ChangeEventSeq;
+    
+    // 键值存储接口
+    interface KeyValueStore {
+        
+        // ==================== 基本操作 ====================
+        
+        // 设置键值对
+        boolean set(in string key, in string value);
+        
+        // 获取值
+        string get(in string key);
+        
+        // 删除键
+        boolean remove(in string key);
+        
+        // 检查键是否存在
+        boolean exists(in string key);
+        
+        // 获取所有键的数量
+        long count();
+        
+        // 清空所有数据
+        void clear();
+        
+        // 批量设置
+        long batchSet(in KeyValueSeq items);
+        
+        // 批量获取
+        void batchGet(
+            in StringSeq keys,
+            out StringSeq values,
+            out StatusSeq status
+        );
+        
+        // ==================== 回调方法（使用 callback 关键字）====================
+        
+        // 当键值发生变化时被调用（回调方法）
+        // 参数：event - 变更事件详情
+        callback void onKeyChanged(in ChangeEvent event);
+        
+        // 批量变更通知（回调方法）
+        // 参数：events - 变更事件列表
+        callback void onBatchChanged(in ChangeEventSeq events);
+        
+        // 连接状态通知（回调方法）
+        callback void onConnectionStatus(in boolean connected);
+    };
+    
+}; // module KeyValueService
