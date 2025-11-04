@@ -818,6 +818,7 @@ class CppSocketCodeGenerator:
         code.append("")
         code.append("#include <string>")
         code.append("#include <vector>")
+        code.append("#include <map>")
         code.append("#include <cstdint>")
         code.append("#include <cstring>")
         code.append("#include <memory>")
@@ -1717,19 +1718,32 @@ public:
     bool isConnected() const { return connected_; }
     
     ssize_t sendData(const void* data, size_t size) {
-        return send(sockfd_, data, size, 0);
+        // UDP: send datagram to server address
+        return sendto(sockfd_, data, size, 0, 
+                      (struct sockaddr*)&addr_, sizeof(addr_));
     }
     
     ssize_t receiveData(void* buffer, size_t size) {
-        return recv(sockfd_, buffer, size, 0);
+        // UDP: receive datagram
+        struct sockaddr_in from_addr;
+        socklen_t from_len = sizeof(from_addr);
+        return recvfrom(sockfd_, buffer, size, 0,
+                        (struct sockaddr*)&from_addr, &from_len);
     }
     
-    static ssize_t sendDataToSocket(int fd, const void* data, size_t size) {
-        return send(fd, data, size, 0);
+    static ssize_t sendDataToSocket(int fd, const void* data, size_t size,
+                                   const struct sockaddr_in* addr) {
+        // UDP: send to specific address
+        return sendto(fd, data, size, 0,
+                      (struct sockaddr*)addr, sizeof(*addr));
     }
     
-    static ssize_t receiveDataFromSocket(int fd, void* buffer, size_t size) {
-        return recv(fd, buffer, size, 0);
+    static ssize_t receiveDataFromSocket(int fd, void* buffer, size_t size,
+                                        struct sockaddr_in* from_addr) {
+        // UDP: receive from any address
+        socklen_t from_len = sizeof(*from_addr);
+        return recvfrom(fd, buffer, size, 0,
+                        (struct sockaddr*)from_addr, &from_len);
     }
 };
 #endif // IPC_SOCKET_BASE_DEFINED"""
@@ -1761,20 +1775,21 @@ public:
         lines.append("        stopListening();")
         lines.append("    }")
         lines.append("")
-        lines.append("    // Connect to server")
+        lines.append("    // Setup UDP client")
         lines.append("    bool connect(const std::string& host, uint16_t port) {")
-        lines.append("        sockfd_ = socket(AF_INET, SOCK_STREAM, 0);")
+        lines.append("        sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);  // UDP socket")
         lines.append("        if (sockfd_ < 0) return false;")
+        lines.append("")
+        lines.append("        // Set receive timeout")
+        lines.append("        struct timeval tv;")
+        lines.append("        tv.tv_sec = 5;")
+        lines.append("        tv.tv_usec = 0;")
+        lines.append("        setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));")
         lines.append("")
         lines.append("        addr_.sin_family = AF_INET;")
         lines.append("        addr_.sin_port = htons(port);")
         lines.append("        inet_pton(AF_INET, host.c_str(), &addr_.sin_addr);")
         lines.append("")
-        lines.append("        if (::connect(sockfd_, (struct sockaddr*)&addr_, sizeof(addr_)) < 0) {")
-        lines.append("            close(sockfd_);")
-        lines.append("            sockfd_ = -1;")
-        lines.append("            return false;")
-        lines.append("        }")
         lines.append("        connected_ = true;")
         lines.append("        return true;")
         lines.append("    }")
@@ -1902,22 +1917,22 @@ public:
         lines.append("        stopListening();")
         lines.append("    }")
         lines.append("")
-        lines.append("    // Connect to server")
+        lines.append("    // Setup UDP client")
         lines.append("    bool connect(const std::string& host, uint16_t port) {")
-        lines.append("        sockfd_ = socket(AF_INET, SOCK_STREAM, 0);")
+        lines.append("        sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);  // UDP socket")
         lines.append("        if (sockfd_ < 0) {")
         lines.append("            return false;")
         lines.append("        }")
         lines.append("")
+        lines.append("        // Set receive timeout")
+        lines.append("        struct timeval tv;")
+        lines.append("        tv.tv_sec = 5;")
+        lines.append("        tv.tv_usec = 0;")
+        lines.append("        setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));")
+        lines.append("")
         lines.append("        addr_.sin_family = AF_INET;")
         lines.append("        addr_.sin_port = htons(port);")
         lines.append("        inet_pton(AF_INET, host.c_str(), &addr_.sin_addr);")
-        lines.append("")
-        lines.append("        if (::connect(sockfd_, (struct sockaddr*)&addr_, sizeof(addr_)) < 0) {")
-        lines.append("            close(sockfd_);")
-        lines.append("            sockfd_ = -1;")
-        lines.append("            return false;")
-        lines.append("        }")
         lines.append("")
         lines.append("        connected_ = true;")
         lines.append("        ")
@@ -1953,42 +1968,49 @@ public:
         lines.append("            tv.tv_usec = 0;")
         lines.append("            setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));")
         lines.append("")
-        lines.append("            // Receive message size")
-        lines.append("            uint32_t msg_size;")
-        lines.append("            ssize_t received = recv(sockfd_, &msg_size, sizeof(msg_size), 0);")
+        lines.append("            // Receive complete UDP datagram (size + data)")
+        lines.append("            uint8_t recv_buffer[65536];")
+        lines.append("            struct sockaddr_in from_addr;")
+        lines.append("            socklen_t from_len = sizeof(from_addr);")
+        lines.append("            ssize_t received = recvfrom(sockfd_, recv_buffer, sizeof(recv_buffer), 0,")
+        lines.append("                                        (struct sockaddr*)&from_addr, &from_len);")
         lines.append("")
         lines.append("            if (received <= 0) {")
         lines.append("                if (errno == EAGAIN || errno == EWOULDBLOCK) {")
         lines.append("                    continue; // Timeout, continue listening")
         lines.append("                }")
-        lines.append("                break; // Connection closed or error")
+        lines.append("                break; // Error")
         lines.append("            }")
         lines.append("")
-        lines.append("            // Receive message data")
-        lines.append("            uint8_t recv_buffer[65536];")
-        lines.append("            ssize_t recv_size = recv(sockfd_, recv_buffer, msg_size, 0);")
-        lines.append("            if (recv_size < 0 || recv_size != msg_size) {")
-        lines.append("                break;")
-        lines.append("            }")
+        lines.append("            // Parse message: first 4 bytes = size, next bytes = data")
+        lines.append("            if (received < 8) continue;  // At least size(4) + msg_id(4)")
+        lines.append("            ")
+        lines.append("            uint32_t msg_size = (static_cast<uint32_t>(recv_buffer[0]) << 24) |")
+        lines.append("                                (static_cast<uint32_t>(recv_buffer[1]) << 16) |")
+        lines.append("                                (static_cast<uint32_t>(recv_buffer[2]) << 8) |")
+        lines.append("                                static_cast<uint32_t>(recv_buffer[3]);")
         lines.append("")
-        lines.append("            // Parse message ID")
-        lines.append("            if (msg_size < 4) continue;")
-        lines.append("            uint32_t msg_id = (static_cast<uint32_t>(recv_buffer[0]) << 24) |")
-        lines.append("                              (static_cast<uint32_t>(recv_buffer[1]) << 16) |")
-        lines.append("                              (static_cast<uint32_t>(recv_buffer[2]) << 8) |")
-        lines.append("                              static_cast<uint32_t>(recv_buffer[3]);")
+        lines.append("            // Verify size matches")
+        lines.append("            if (received != msg_size + 4) continue;")
+        lines.append("")
+        lines.append("            // Parse message ID from data part")
+        lines.append("            uint8_t* data = recv_buffer + 4;")
+        lines.append("            uint32_t msg_id = (static_cast<uint32_t>(data[0]) << 24) |")
+        lines.append("                              (static_cast<uint32_t>(data[1]) << 16) |")
+        lines.append("                              (static_cast<uint32_t>(data[2]) << 8) |")
+        lines.append("                              static_cast<uint32_t>(data[3]);")
         lines.append("")
         lines.append("            // Check if this is a callback message (REQ) or RPC response (RESP)")
         lines.append("            bool is_callback = isCallbackMessage(msg_id);")
         lines.append("")
         lines.append("            if (is_callback) {")
         lines.append("                // Handle callback directly")
-        lines.append("                handleBroadcastMessage(msg_id, recv_buffer, recv_size);")
+        lines.append("                handleBroadcastMessage(msg_id, data, msg_size);")
         lines.append("            } else {")
         lines.append("                // Queue RPC response for RPC method to retrieve")
         lines.append("                QueuedMessage msg;")
         lines.append("                msg.msg_id = msg_id;")
-        lines.append("                msg.data.assign(recv_buffer, recv_buffer + recv_size);")
+        lines.append("                msg.data.assign(data, data + msg_size);")
         lines.append("                {")
         lines.append("                    std::lock_guard<std::mutex> lock(queue_mutex_);")
         lines.append("                    rpc_response_queue_.push(msg);")
@@ -2167,20 +2189,22 @@ public:
                     lines.append(f"        request.{param.name} = {param.name};")
         
         lines.append("")
-        lines.append("        // Serialize and send request (thread-safe)")
+        lines.append("        // Serialize and send request via UDP (thread-safe)")
         lines.append("        std::lock_guard<std::mutex> lock(send_mutex_);")
         lines.append("        ByteBuffer buffer;")
         lines.append("        request.serialize(buffer);")
-        lines.append("        // Send message size first")
+        lines.append("        ")
+        lines.append("        // Prepare UDP datagram: size(4 bytes) + data")
         lines.append("        uint32_t msg_size = buffer.size();")
-        lines.append("        if (sendData(&msg_size, sizeof(msg_size)) < 0) {")
-        if method.return_type == 'void':
-            lines.append("            return false;")
-        else:
-            lines.append(f"            return {cpp_return_type}();")
-        lines.append("        }")
-        lines.append("        // Send message data")
-        lines.append("        if (sendData(buffer.data(), buffer.size()) < 0) {")
+        lines.append("        uint8_t send_buffer[65536];")
+        lines.append("        send_buffer[0] = (msg_size >> 24) & 0xFF;")
+        lines.append("        send_buffer[1] = (msg_size >> 16) & 0xFF;")
+        lines.append("        send_buffer[2] = (msg_size >> 8) & 0xFF;")
+        lines.append("        send_buffer[3] = msg_size & 0xFF;")
+        lines.append("        memcpy(send_buffer + 4, buffer.data(), msg_size);")
+        lines.append("        ")
+        lines.append("        // Send complete datagram")
+        lines.append("        if (sendData(send_buffer, msg_size + 4) < 0) {")
         if method.return_type == 'void':
             lines.append("            return false;")
         else:
@@ -2269,42 +2293,35 @@ public:
         lines.append(f"// Server Interface for {interface_name}")
         lines.append(f"class {interface_name}Server : public SocketBase {{")
         lines.append("private:")
-        lines.append("    int listen_fd_;")
+        lines.append("    int sockfd_;  // UDP socket")
         lines.append("    bool running_;")
-        lines.append("    std::vector<int> client_fds_;")
+        lines.append("    std::map<std::string, struct sockaddr_in> clients_;  // Track clients by address")
         lines.append("    mutable std::mutex clients_mutex_;")
-        lines.append("    std::vector<std::thread> client_threads_;")
         lines.append("")
         lines.append("public:")
-        lines.append(f"    {interface_name}Server() : listen_fd_(-1), running_(false) {{}}")
+        lines.append(f"    {interface_name}Server() : sockfd_(-1), running_(false) {{}}")
         lines.append("")
         lines.append("    ~" + interface_name + "Server() {")
         lines.append("        stop();")
         lines.append("    }")
         lines.append("")
-        lines.append("    // Start server")
+        lines.append("    // Start UDP server")
         lines.append("    bool start(uint16_t port) {")
-        lines.append("        listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);")
-        lines.append("        if (listen_fd_ < 0) {")
+        lines.append("        sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);  // UDP socket")
+        lines.append("        if (sockfd_ < 0) {")
         lines.append("            return false;")
         lines.append("        }")
         lines.append("")
         lines.append("        int opt = 1;")
-        lines.append("        setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));")
+        lines.append("        setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));")
         lines.append("")
         lines.append("        addr_.sin_family = AF_INET;")
         lines.append("        addr_.sin_addr.s_addr = INADDR_ANY;")
         lines.append("        addr_.sin_port = htons(port);")
         lines.append("")
-        lines.append("        if (bind(listen_fd_, (struct sockaddr*)&addr_, sizeof(addr_)) < 0) {")
-        lines.append("            close(listen_fd_);")
-        lines.append("            listen_fd_ = -1;")
-        lines.append("            return false;")
-        lines.append("        }")
-        lines.append("")
-        lines.append("        if (listen(listen_fd_, 10) < 0) {")
-        lines.append("            close(listen_fd_);")
-        lines.append("            listen_fd_ = -1;")
+        lines.append("        if (bind(sockfd_, (struct sockaddr*)&addr_, sizeof(addr_)) < 0) {")
+        lines.append("            close(sockfd_);")
+        lines.append("            sockfd_ = -1;")
         lines.append("            return false;")
         lines.append("        }")
         lines.append("")
@@ -2315,140 +2332,108 @@ public:
         lines.append("    void stop() {")
         lines.append("        running_ = false;")
         lines.append("        ")
-        lines.append("        // Close all client connections")
-        lines.append("        {")
-        lines.append("            std::lock_guard<std::mutex> lock(clients_mutex_);")
-        lines.append("            for (int fd : client_fds_) {")
-        lines.append("                close(fd);")
-        lines.append("            }")
-        lines.append("            client_fds_.clear();")
+        lines.append("        if (sockfd_ >= 0) {")
+        lines.append("            close(sockfd_);")
+        lines.append("            sockfd_ = -1;")
         lines.append("        }")
         lines.append("        ")
-        lines.append("        if (listen_fd_ >= 0) {")
-        lines.append("            close(listen_fd_);")
-        lines.append("            listen_fd_ = -1;")
-        lines.append("        }")
-        lines.append("        ")
-        lines.append("        // Wait for all client threads to finish")
-        lines.append("        for (auto& thread : client_threads_) {")
-        lines.append("            if (thread.joinable()) {")
-        lines.append("                thread.join();")
-        lines.append("            }")
-        lines.append("        }")
-        lines.append("        client_threads_.clear();")
+        lines.append("        std::lock_guard<std::mutex> lock(clients_mutex_);")
+        lines.append("        clients_.clear();")
         lines.append("    }")
         lines.append("")
-        lines.append("    // Main server loop")
+        lines.append("    // Main server loop - receive UDP datagrams")
         lines.append("    void run() {")
         lines.append("        while (running_) {")
+        lines.append("            uint8_t recv_buffer[65536];")
         lines.append("            struct sockaddr_in client_addr;")
         lines.append("            socklen_t addr_len = sizeof(client_addr);")
-        lines.append("            int client_fd = accept(listen_fd_, (struct sockaddr*)&client_addr, &addr_len);")
+        lines.append("            ")
+        lines.append("            ssize_t received = recvfrom(sockfd_, recv_buffer, sizeof(recv_buffer), 0,")
+        lines.append("                                       (struct sockaddr*)&client_addr, &addr_len);")
         lines.append("")
-        lines.append("            if (client_fd < 0) {")
-        lines.append("                if (running_) {")
-        lines.append("                    continue;")
-        lines.append("                } else {")
-        lines.append("                    break;")
-        lines.append("                }")
+        lines.append("            if (received <= 0) {")
+        lines.append("                if (errno == EINTR && running_) continue;")
+        lines.append("                break;")
         lines.append("            }")
         lines.append("")
-        lines.append("            // Add client to list")
+        lines.append("            // Register client address")
         lines.append("            {")
         lines.append("                std::lock_guard<std::mutex> lock(clients_mutex_);")
-        lines.append("                client_fds_.push_back(client_fd);")
+        lines.append("                char client_key[64];")
+        lines.append("                sprintf(client_key, \"%s:%d\", ")
+        lines.append("                        inet_ntoa(client_addr.sin_addr), ")
+        lines.append("                        ntohs(client_addr.sin_port));")
+        lines.append("                clients_[client_key] = client_addr;")
         lines.append("            }")
         lines.append("")
-        lines.append("            // Handle client in a new thread")
-        lines.append("            client_threads_.emplace_back([this, client_fd]() {")
-        lines.append("                handleClient(client_fd);")
-        lines.append("                ")
-        lines.append("                // Remove client from list")
-        lines.append("                {")
-        lines.append("                    std::lock_guard<std::mutex> lock(clients_mutex_);")
-        lines.append("                    auto it = std::find(client_fds_.begin(), client_fds_.end(), client_fd);")
-        lines.append("                    if (it != client_fds_.end()) {")
-        lines.append("                        client_fds_.erase(it);")
-        lines.append("                    }")
-        lines.append("                }")
-        lines.append("                ")
-        lines.append("                close(client_fd);")
-        lines.append("                onClientDisconnected(client_fd);")
-        lines.append("            });")
+        lines.append("            // Parse: first 4 bytes = size, rest = data")
+        lines.append("            if (received < 8) continue;")
+        lines.append("            ")
+        lines.append("            uint32_t msg_size = (static_cast<uint32_t>(recv_buffer[0]) << 24) |")
+        lines.append("                                (static_cast<uint32_t>(recv_buffer[1]) << 16) |")
+        lines.append("                                (static_cast<uint32_t>(recv_buffer[2]) << 8) |")
+        lines.append("                                static_cast<uint32_t>(recv_buffer[3]);")
+        lines.append("")
+        lines.append("            if (received != msg_size + 4) continue;")
+        lines.append("")
+        lines.append("            uint8_t* data = recv_buffer + 4;")
+        lines.append("            handleClientRequest(&client_addr, data, msg_size);")
         lines.append("        }")
         lines.append("    }")
         lines.append("")
-        lines.append("    // Broadcast message to all connected clients (with serialization)")
-        lines.append("    // exclude_fd: optionally exclude one client from broadcast (e.g., the sender)")
+        lines.append("    // Broadcast message to all known clients (with serialization)")
         lines.append("    template<typename T>")
-        lines.append("    void broadcast(const T& message, int exclude_fd = -1) {")
+        lines.append("    void broadcast(const T& message) {")
         lines.append("        std::lock_guard<std::mutex> lock(clients_mutex_);")
         lines.append("        ")
         lines.append("        // Serialize message once")
         lines.append("        ByteBuffer buffer;")
         lines.append("        message.serialize(buffer);")
-        lines.append("        uint32_t msg_size = buffer.size();")
         lines.append("        ")
-        lines.append("        // Send to all clients except excluded one")
-        lines.append("        for (int fd : client_fds_) {")
-        lines.append("            if (fd == exclude_fd) continue; // Skip the excluded client")
-        lines.append("            // Send message size")
-        lines.append("            send(fd, &msg_size, sizeof(msg_size), 0);")
-        lines.append("            // Send message data")
-        lines.append("            send(fd, buffer.data(), buffer.size(), 0);")
+        lines.append("        // Prepare datagram: size(4 bytes) + data")
+        lines.append("        uint32_t msg_size = buffer.size();")
+        lines.append("        uint8_t send_buffer[65536];")
+        lines.append("        send_buffer[0] = (msg_size >> 24) & 0xFF;")
+        lines.append("        send_buffer[1] = (msg_size >> 16) & 0xFF;")
+        lines.append("        send_buffer[2] = (msg_size >> 8) & 0xFF;")
+        lines.append("        send_buffer[3] = msg_size & 0xFF;")
+        lines.append("        memcpy(send_buffer + 4, buffer.data(), msg_size);")
+        lines.append("        ")
+        lines.append("        // Send to all known clients")
+        lines.append("        for (const auto& pair : clients_) {")
+        lines.append("            sendto(sockfd_, send_buffer, msg_size + 4, 0,")
+        lines.append("                   (struct sockaddr*)&pair.second, sizeof(pair.second));")
         lines.append("        }")
         lines.append("    }")
         lines.append("")
-        lines.append("    // Get number of connected clients")
+        lines.append("    // Get number of known clients")
         lines.append("    size_t getClientCount() {")
         lines.append("        std::lock_guard<std::mutex> lock(clients_mutex_);")
-        lines.append("        return client_fds_.size();")
+        lines.append("        return clients_.size();")
         lines.append("    }")
         lines.append("")
         lines.append("private:")
-        lines.append("    void handleClient(int client_fd) {")
-        lines.append("        onClientConnected(client_fd);")
+        lines.append("    void handleClientRequest(struct sockaddr_in* client_addr, uint8_t* data, size_t data_size) {")
+        lines.append("        // Parse message ID from data")
+        lines.append("        if (data_size < 4) return;")
         lines.append("        ")
-        lines.append("        while (running_) {")
-        lines.append("            // Receive message size")
-        lines.append("            uint32_t msg_size;")
-        lines.append("            ssize_t received = recv(client_fd, &msg_size, sizeof(msg_size), 0);")
-        lines.append("            ")
-        lines.append("            if (received <= 0) {")
-        lines.append("                // Client disconnected or error")
-        lines.append("                break;")
-        lines.append("            }")
+        lines.append("        uint32_t msg_id = (static_cast<uint32_t>(data[0]) << 24) |")
+        lines.append("                          (static_cast<uint32_t>(data[1]) << 16) |")
+        lines.append("                          (static_cast<uint32_t>(data[2]) << 8) |")
+        lines.append("                          static_cast<uint32_t>(data[3]);")
         lines.append("")
-        lines.append("            // Peek message ID from the data (will be consumed by handler)")
-        lines.append("            uint8_t peek_buffer[65536];")
-        lines.append("            ssize_t peeked = recv(client_fd, peek_buffer, 4, MSG_PEEK);")
-        lines.append("            if (peeked < 4) {")
-        lines.append("                break;")
-        lines.append("            }")
-        lines.append("")
-        lines.append("            uint32_t msg_id = (static_cast<uint32_t>(peek_buffer[0]) << 24) |")
-        lines.append("                              (static_cast<uint32_t>(peek_buffer[1]) << 16) |")
-        lines.append("                              (static_cast<uint32_t>(peek_buffer[2]) << 8) |")
-        lines.append("                              static_cast<uint32_t>(peek_buffer[3]);")
-        lines.append("")
-        lines.append("            switch (msg_id) {")
+        lines.append("        switch (msg_id) {")
         
         # 只为非 callback 方法生成服务端处理 (callback 方法是服务端推送给客户端的)
         for method in self.interface.methods:
             if not method.is_callback:
                 lines.append(f"                case MSG_{method.name.upper()}_REQ:")
-                lines.append(f"                    handle_{method.name}(client_fd, msg_size);")
+                lines.append(f"                    handle_{method.name}(client_addr, data, data_size);")
                 lines.append("                    break;")
         
         lines.append("                default:")
-        lines.append("                    // Unknown message, consume the data")
-        lines.append("                    {")
-        lines.append("                        uint8_t discard[65536];")
-        lines.append("                        recv(client_fd, discard, msg_size, 0);")
-        lines.append("                    }")
         lines.append("                    break;")
         lines.append("            }")
-        lines.append("        }")
         lines.append("    }")
         lines.append("")
         
@@ -2474,33 +2459,18 @@ public:
             if not method.is_callback:  # callback 方法不需要用户在服务端实现
                 lines.append(self._generate_virtual_method(method))
         lines.append("")
-        lines.append("    // Optional callbacks for client connection events")
-        lines.append("    virtual void onClientConnected(int client_fd) {")
-        lines.append("        // Override this to handle client connection")
-        lines.append("    }")
-        lines.append("")
-        lines.append("    virtual void onClientDisconnected(int client_fd) {")
-        lines.append("        // Override this to handle client disconnection")
-        lines.append("    }")
         
         lines.append("};")
         
         return "\n".join(lines)
     
     def _generate_server_handler(self, method: IDLMethod) -> str:
-        """生成服务端消息处理方法（使用序列化，msg_size已被读取）"""
+        """生成服务端消息处理方法（UDP版本）"""
         lines = []
         
-        lines.append(f"    void handle_{method.name}(int client_fd, uint32_t msg_size) {{")
-        lines.append("        // Receive request data (size already read by handleClient)")
-        lines.append("        uint8_t recv_buffer[65536];")
-        lines.append("        ssize_t recv_size = recv(client_fd, recv_buffer, msg_size, 0);")
-        lines.append("        if (recv_size < 0 || recv_size != msg_size) {")
-        lines.append("            return;")
-        lines.append("        }")
-        lines.append("")
+        lines.append(f"    void handle_{method.name}(struct sockaddr_in* client_addr, uint8_t* data, size_t data_size) {{")
         lines.append(f"        {method.name}Request request;")
-        lines.append("        ByteReader reader(recv_buffer, recv_size);")
+        lines.append("        ByteReader reader(data, data_size);")
         lines.append("        request.deserialize(reader);")
         lines.append("")
         
@@ -2533,14 +2503,22 @@ public:
                 lines.append(f"        on{method.name}({', '.join(call_params)});")
             
             lines.append("")
-            lines.append("        // Serialize and send response")
+            lines.append("        // Serialize and send response via UDP")
             lines.append("        ByteBuffer buffer;")
             lines.append("        response.serialize(buffer);")
-            lines.append("        // Send response size first")
+            lines.append("        ")
+            lines.append("        // Prepare datagram: size(4) + data")
             lines.append("        uint32_t resp_size = buffer.size();")
-            lines.append("        send(client_fd, &resp_size, sizeof(resp_size), 0);")
-            lines.append("        // Send response data")
-            lines.append("        send(client_fd, buffer.data(), buffer.size(), 0);")
+            lines.append("        uint8_t send_buffer[65536];")
+            lines.append("        send_buffer[0] = (resp_size >> 24) & 0xFF;")
+            lines.append("        send_buffer[1] = (resp_size >> 16) & 0xFF;")
+            lines.append("        send_buffer[2] = (resp_size >> 8) & 0xFF;")
+            lines.append("        send_buffer[3] = resp_size & 0xFF;")
+            lines.append("        memcpy(send_buffer + 4, buffer.data(), resp_size);")
+            lines.append("        ")
+            lines.append("        // Send response datagram to client")
+            lines.append("        sendto(sockfd_, send_buffer, resp_size + 4, 0,")
+            lines.append("               (struct sockaddr*)client_addr, sizeof(*client_addr));")
         else:
             # 无响应的方法
             call_params = []
@@ -2556,10 +2534,10 @@ public:
         return "\n".join(lines)
     
     def _generate_callback_push_method(self, method: IDLMethod) -> str:
-        """生成 callback 方法的推送函数（服务端用于向客户端推送回调）"""
+        """生成 callback 方法的推送函数（服务端用于向客户端推送回调）- UDP版本"""
         lines = []
         
-        # 生成推送方法签名
+        # 生成推送方法签名（UDP版本不需要exclude_fd）
         params = []
         for param in method.parameters:
             cpp_type = self.map_type(param.type_name)
@@ -2573,9 +2551,6 @@ public:
                     params.append(f"const {cpp_type}& {param.name}")
                 else:
                     params.append(f"{cpp_type} {param.name}")
-        
-        # 添加可选的 exclude_fd 参数用于排除特定客户端
-        params.append("int exclude_fd = -1")
         
         lines.append(f"    void push_{method.name}({', '.join(params)}) {{")
         lines.append(f"        // Prepare callback request")
@@ -2592,8 +2567,8 @@ public:
                 lines.append(f"        request.{param.name} = {param.name};")
         
         lines.append("")
-        lines.append(f"        // Broadcast callback to all clients")
-        lines.append(f"        broadcast(request, exclude_fd);")
+        lines.append(f"        // Broadcast callback to all known clients via UDP")
+        lines.append(f"        broadcast(request);")
         lines.append("    }")
         
         return "\n".join(lines)
@@ -2831,7 +2806,15 @@ def main():
     # 生成代码
     print(f"\n🔧 正在生成 C++ Socket 通信代码...")
     
-    os.makedirs(args.output, exist_ok=True)
+    # 如果output是文件路径（包含.hpp），则提取目录部分
+    if args.output.endswith('.hpp'):
+        output_dir = os.path.dirname(args.output) or '.'
+        output_base = os.path.basename(args.output).replace('_socket.hpp', '')
+    else:
+        output_dir = args.output
+        output_base = None
+    
+    os.makedirs(output_dir, exist_ok=True)
     
     # 找到对应的 module（如果有）
     module_map = {}
@@ -2894,6 +2877,10 @@ def main():
         
         interface_name = interface.name.lower()
         
+        # 如果指定了输出文件名，使用它；否则使用接口名
+        if output_base:
+            interface_name = output_base
+        
         # 获取对应的 module
         module = module_map.get(interface.name)
         
@@ -2905,7 +2892,7 @@ def main():
         
         # 生成头文件
         header_code = generator.generate_header()
-        header_file = os.path.join(args.output, f"{interface_name}_socket.hpp")
+        header_file = os.path.join(output_dir, f"{interface_name}_socket.hpp")
         with open(header_file, 'w', encoding='utf-8') as f:
             f.write(header_code)
         print(f"   ✅ 生成: {header_file}")
@@ -2913,27 +2900,27 @@ def main():
         # 生成示例代码
         if not args.no_examples:
             client_example = generator.generate_client_example()
-            client_file = os.path.join(args.output, f"{interface_name}_client_example.cpp")
+            client_file = os.path.join(output_dir, f"{interface_name}_client_example.cpp")
             with open(client_file, 'w', encoding='utf-8') as f:
                 f.write(client_example)
             print(f"   ✅ 生成: {client_file}")
             
             server_example = generator.generate_server_example()
-            server_file = os.path.join(args.output, f"{interface_name}_server_example.cpp")
+            server_file = os.path.join(output_dir, f"{interface_name}_server_example.cpp")
             with open(server_file, 'w', encoding='utf-8') as f:
                 f.write(server_example)
             print(f"   ✅ 生成: {server_file}")
     
     # 生成Makefile
     makefile_content = generate_makefile(interfaces, args.namespace)
-    makefile_path = os.path.join(args.output, "Makefile")
+    makefile_path = os.path.join(output_dir, "Makefile")
     with open(makefile_path, 'w', encoding='utf-8') as f:
         f.write(makefile_content)
     print(f"   ✅ 生成: {makefile_path}")
     
     print("\n🎉 代码生成完成！")
     print(f"\n编译方法:")
-    print(f"  cd {args.output}")
+    print(f"  cd {output_dir}")
     print(f"  make")
     
     return 0
